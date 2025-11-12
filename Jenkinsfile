@@ -73,7 +73,7 @@ pipeline {
                 withKubeConfig([credentialsId: 'kubernetes']) {
                     script {
                         sh '''
-                            envsubst < ${WORKSPACE}/deploymentservice.yml | ./kubectl apply -f -
+                            envsubst < ${WORKSPACE}/deployment-service.yml | ./kubectl apply -f -
                         '''
                     }
                 }
