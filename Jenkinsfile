@@ -81,21 +81,33 @@ pipeline {
         }
     }
 
-    // POST BLOCK MUST BE HERE, OUTSIDE STAGES
     post {
-        always {
+        success {
             emailext(
-                subject: "Pipeline Status: Build #${env.BUILD_NUMBER}",
+                subject: "Build Success: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                 body: """<html>
                             <body>
-                                <p>Build Status: ${currentBuild.currentResult}</p>
+                                <p>Status: SUCCESS</p>
                                 <p>Build Number: ${env.BUILD_NUMBER}</p>
-                                <p>Check the <a href="${env.BUILD_URL}">console output</a>.</p>
+                                <p>Check <a href="${env.BUILD_URL}">console output</a>.</p>
                             </body>
                         </html>""",
                 to: 'adex0404@gmail.com',
-                from: 'jenkins@example.com',
-                replyTo: 'jenkins@example.com',
+                mimeType: 'text/html'
+            )
+        }
+
+        failure {
+            emailext(
+                subject: "Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """<html>
+                            <body>
+                                <p>Status: FAILURE</p>
+                                <p>Build Number: ${env.BUILD_NUMBER}</p>
+                                <p>Check <a href="${env.BUILD_URL}">console output</a>.</p>
+                            </body>
+                        </html>""",
+                to: 'adex0404@gmail.com',
                 mimeType: 'text/html'
             )
         }
