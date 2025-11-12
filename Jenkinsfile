@@ -1,10 +1,12 @@
 pipeline {
     agent any
-    tools{
+
+    tools {
         jdk "Java_JDK"
         maven "Java_Maven"
     }
-    environment{
+
+    environment {
         JAVA_HOME = '/usr/lib/jvm/java-17-openjdk-amd64'
         PATH = "${JAVA_HOME}/bin:${env.PATH}"
         SERVICE_NAME = "secretsanta-generator"
@@ -14,94 +16,88 @@ pipeline {
     }
 
     stages {
-
         stage('Code-Compile') {
             steps {
-               sh "mvn clean compile"
+                sh "mvn clean compile"
             }
         }
-        
+
         stage('Unit Tests') {
             steps {
-               sh "mvn test"
+                sh "mvn test"
             }
         }
-		 
+
         stage('Code-Build') {
             steps {
-               sh "mvn clean package"
+                sh "mvn clean package"
             }
         }
 
         stage('Docker Build & Push') {
             steps {
-                    withDockerRegistry([credentialsId: 'DOCKERHUB_USERNAME', url: ""]) {
-                        sh 'docker build -t ${REPOSITORY_TAG} .'
-                        sh 'docker push ${REPOSITORY_TAG}'
-                    }
-                }   
+                withDockerRegistry([credentialsId: 'DOCKERHUB_USERNAME', url: ""]) {
+                    sh "docker build -t ${REPOSITORY_TAG} ."
+                    sh "docker push ${REPOSITORY_TAG}"
+                }
             }
-        
-        stage("Install kubectl"){
+        }
+
+        stage("Install kubectl") {
             steps {
                 sh """
-                    curl -LO https://storage.googleapis.com/kubernetes-release/release/`
-                    curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt`/bin/linux/amd64/kubectl
+                    curl -LO https://storage.googleapis.com/kubernetes-release/release/`curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt`/bin/linux/amd64/kubectl
                     chmod +x ./kubectl
                     ./kubectl version --client
                 """
             }
         }
-        
-        	 
+
         stage('Docker Image Scan') {
             steps {
-               sh "trivy image ${REPOSITORY_TAG} "
+                sh "trivy image ${REPOSITORY_TAG}"
             }
         }
-        
+
+        stage('Approval') {
+            steps {
+                timeout(time: 15, unit: "MINUTES") {
+                    input message: 'Do you want to approve the deployment?', ok: 'Yes'
+                }
+                echo "Deployment Approved"
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                withKubeConfig([credentialsId: 'kubernetes']) {
+                    script {
+                        sh '''
+                            envsubst < ${WORKSPACE}/deploymentservice.yml | ./kubectl apply -f -
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    // POST BLOCK MUST BE HERE, OUTSIDE STAGES
     post {
         always {
-            emailext (
-                subject: "Pipeline Status: ${BUILD_NUMBER}",
-                body: '''<html>
+            emailext(
+                subject: "Pipeline Status: Build #${env.BUILD_NUMBER}",
+                body: """<html>
                             <body>
-                                <p>Build Status: ${BUILD_STATUS}</p>
-                                <p>Build Number: ${BUILD_NUMBER}</p>
-                                <p>Check the <a href="${BUILD_URL}">console output</a>.</p>
+                                <p>Build Status: ${currentBuild.currentResult}</p>
+                                <p>Build Number: ${env.BUILD_NUMBER}</p>
+                                <p>Check the <a href="${env.BUILD_URL}">console output</a>.</p>
                             </body>
-                        </html>''',
+                        </html>""",
                 to: 'adex0404@gmail.com',
                 from: 'jenkins@example.com',
                 replyTo: 'jenkins@example.com',
                 mimeType: 'text/html'
             )
         }
-    }
-
-        stage('Approval') {
-            steps {
-                // CD - Approval Button with a timeout of 15 minutes.
-                timeout(time: 15, unit: "MINUTES") {
-                    input message: 'Do you want to approve the deployment?', ok: 'Yes'
-                }
-                echo "Deployment Approved"
-            }
-        } 
-        
-        stage('Deploy to Kubernetes') {
-            steps {
-                withKubeConfig([credentialsId: 'kubernetes']) {
-                script {
-                    // Assuming kubectl is installed locally in the Jenkins environment
-                    sh '''
-                        # Substitute environment variables in deploymentservice.yml and apply to Kubernetes
-                        envsubst < ${WORKSPACE}/deploymentservice.yml | ./kubectl apply -f -
-                    '''
-                    }
-                }
-            }
-        }
-		
     }
 }
