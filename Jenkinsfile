@@ -53,7 +53,7 @@ pipeline {
             }
         }
 
-        stage('Docker Image Scan') {
+        stage('Docker Image Scan with Trivy') {
             steps {
                 sh "trivy image ${REPOSITORY_TAG}"
             }
