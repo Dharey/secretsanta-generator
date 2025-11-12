@@ -1,19 +1,19 @@
 pipeline {
     agent any
     tools{
-        jdk 'jdk17'
-        maven 'maven3'
+        jdk "Java_JDK"
+        maven "Java_Maven"
     }
     environment{
-        SCANNER_HOME= tool 'sonar-scanner'
+        JAVA_HOME = '/usr/lib/jvm/java-17-openjdk-amd64'
+        PATH = "${JAVA_HOME}/bin:${env.PATH}"
+        SERVICE_NAME = "secretsanta-generator"
+        ORGANIZATION_NAME = "deetechpro"
+        DOCKERHUB_USERNAME = "oluwaseyi12"
+        REPOSITORY_TAG = "${DOCKERHUB_USERNAME}/${ORGANIZATION_NAME}-${SERVICE_NAME}:${BUILD_ID}"
     }
 
     stages {
-        stage('git-checkout') {
-            steps {
-                git 'https://github.com/jaiswaladi246/secretsanta-generator.git'
-            }
-        }
 
         stage('Code-Compile') {
             steps {
@@ -26,25 +26,6 @@ pipeline {
                sh "mvn test"
             }
         }
-        
-		stage('OWASP Dependency Check') {
-            steps {
-               dependencyCheck additionalArguments: ' --scan ./ ', odcInstallation: 'DC'
-                    dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-            }
-        }
-
-
-        stage('Sonar Analysis') {
-            steps {
-               withSonarQubeEnv('sonar'){
-                   sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Santa \
-                   -Dsonar.java.binaries=. \
-                   -Dsonar.projectKey=Santa '''
-               }
-            }
-        }
-
 		 
         stage('Code-Build') {
             steps {
@@ -52,35 +33,34 @@ pipeline {
             }
         }
 
-         stage('Docker Build') {
+        stage('Docker Build & Push') {
             steps {
-               script{
-                   withDockerRegistry(credentialsId: 'docker-cred') {
-                    sh "docker build -t  santa123 . "
-                 }
-               }
+                    withDockerRegistry([credentialsId: 'DOCKERHUB_USERNAME', url: ""]) {
+                        sh 'docker build -t ${REPOSITORY_TAG} .'
+                        sh 'docker push ${REPOSITORY_TAG}'
+                    }
+                }   
             }
-        }
-
-        stage('Docker Push') {
+        
+        stage("Install kubectl"){
             steps {
-               script{
-                   withDockerRegistry(credentialsId: 'docker-cred') {
-                    sh "docker tag santa123 adijaiswal/santa123:latest"
-                    sh "docker push adijaiswal/santa123:latest"
-                 }
-               }
+                sh """
+                    curl -LO https://storage.googleapis.com/kubernetes-release/release/`
+                    curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt`/bin/linux/amd64/kubectl
+                    chmod +x ./kubectl
+                    ./kubectl version --client
+                """
             }
         }
         
         	 
         stage('Docker Image Scan') {
             steps {
-               sh "trivy image adijaiswal/santa123:latest "
+               sh "trivy image ${REPOSITORY_TAG} "
             }
-        }}
+        }
         
-         post {
+        post {
             always {
                 emailext (
                     subject: "Pipeline Status: ${BUILD_NUMBER}",
@@ -91,15 +71,37 @@ pipeline {
                                     <p>Check the <a href="${BUILD_URL}">console output</a>.</p>
                                 </body>
                             </html>''',
-                    to: 'jaiswaladi246@gmail.com',
+                    to: 'adex0404@gmail.com',
                     from: 'jenkins@example.com',
                     replyTo: 'jenkins@example.com',
                     mimeType: 'text/html'
                 )
             }
         }
-		
-		
 
-    
+        stage('Approval') {
+            steps {
+                // CD - Approval Button with a timeout of 15 minutes.
+                timeout(time: 15, unit: "MINUTES") {
+                    input message: 'Do you want to approve the deployment?', ok: 'Yes'
+                }
+                echo "Deployment Approved"
+            }
+        } 
+        
+        stage('Deploy to Kubernetes') {
+            steps {
+                withKubeConfig([credentialsId: 'kubernetes']) {
+                script {
+                    // Assuming kubectl is installed locally in the Jenkins environment
+                    sh '''
+                        # Substitute environment variables in deploymentservice.yml and apply to Kubernetes
+                        envsubst < ${WORKSPACE}/deploymentservice.yml | ./kubectl apply -f -
+                    '''
+                    }
+                }
+            }
+        }
+		
+    }
 }
